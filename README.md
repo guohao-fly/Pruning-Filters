@@ -11,18 +11,25 @@ Pruning Filters for Efficient ConvNets
 如上图所示，删除一个 Filter 就能减少一个输出特征图，同时特征图对应的接下来卷积操作同样可以删除掉。
 
 修剪Filter步骤：
+
 1)计算 Filter 中所有权值的绝对值之和
+
 2)根据求和大小排列 Filter
+
 3)删除数值较小的 Filter （权重数值越小，代表权重的重要性越弱）
+
 4)对删除之后的 Filter 重新组合，生成新的Filter矩阵
 
 多层同时修剪：
+
 作者给出了2中修剪思路：
-1)独立修剪：修剪时每一层是独立的。
+
+1)独立修剪：修剪时每一层是独立的
+
 2)贪心修剪：修剪时考虑之前图层中删除的 Filter 。
+
 两种方法的区别：独立修剪在计算（求权重绝对值之和）时不考虑上一层的修剪情况，所以计算时下图中的黄点仍然参与计算；贪心修剪计算时不计算已经修剪过的，即黄点不参与计算。
 结果证明第二种方法的精度高一些。
 
 ![image](https://user-images.githubusercontent.com/80331072/112116392-36594300-8bf5-11eb-89cb-968c580db546.png)
-
 ![image](https://user-images.githubusercontent.com/80331072/112116453-453ff580-8bf5-11eb-9d1c-4d929aca1d47.png)
