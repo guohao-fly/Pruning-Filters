@@ -5,9 +5,9 @@
 ![image](https://user-images.githubusercontent.com/80331072/118351670-c54c6100-b58f-11eb-9ca1-015d65a59327.png)
 
 ## 优势
-1.Fast：相比VGG，现有的多分支架构理论上具有更低的Flops，但推理速度并未更快。  
-2.Memory-economical：多分支结构是一种内存低效的架构，这是因为每个分支的结构都需要在Add/Concat之前保存，这会导致更大的峰值内存占用；而plain模型则具有更好的内存高效特征。  
-3.Flexible：多分支结构会限制CNN的灵活性，比如ResBlock会约束两个分支的tensor具有相同的形状；与此同时，多分支结构对于模型剪枝不够友好。
+**1.Fast：**相比VGG，现有的多分支架构理论上具有更低的Flops，但推理速度并未更快。  
+**2.Memory-economical：**多分支结构是一种内存低效的架构，这是因为每个分支的结构都需要在Add/Concat之前保存，这会导致更大的峰值内存占用；而plain模型则具有更好的内存高效特征。  
+**3.Flexible：**多分支结构会限制CNN的灵活性，比如ResBlock会约束两个分支的tensor具有相同的形状；与此同时，多分支结构对于模型剪枝不够友好。
 
 ## 基本结构
 &ensp; 本文所设计的RepVGG则是受ResNet启发得到，尽管多分支结构对于推理不友好，但对于训练友好，作者将RepVGG设计为训练时的多分支，推理时单分支结构。作者参考ResNet的identity与1 × 1分支，设计了如下形式模块：  
@@ -29,9 +29,10 @@ bn层函数，形式上为：
 ![image](https://user-images.githubusercontent.com/80331072/118352219-ce8afd00-b592-11eb-80b5-1cf1a4718b08.png)  
 那就很容易验证了  
 ![image](https://user-images.githubusercontent.com/80331072/118352236-eb273500-b592-11eb-899c-a8e13090acef.png)  
-该分支变成了一个卷积核和一个bias的结构，同理，三个分支都可以变换，得到一个3×3卷积核，两个1×1卷积核以及三个bias参数。  
-bias：三个bias参数可以通过简单的add方式合并为一个bias
-卷积核：将1×1卷积核参数加到3×3卷积核的中心点得到
+该分支变成了一个卷积核和一个bias的结构，同理，三个分支都可以变换，得到一个3×3卷积核，两个1×1卷积核以及三个bias参数。    
+**bias：**三个bias参数可以通过简单的add方式合并为一个bias  
+**卷积核：**将1×1卷积核参数加到3×3卷积核的中心点得到  
 
+## 模型代码（revgg.py）
 
 
