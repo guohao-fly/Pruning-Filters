@@ -14,7 +14,54 @@
 ![image](https://user-images.githubusercontent.com/80331072/118351780-6f2bed80-b590-11eb-96ef-9b5ab5f19243.png)  
 其中，g(x),f(x) 分别对应为1×1,3×3卷积。  
 ![image](https://user-images.githubusercontent.com/80331072/118351828-b4501f80-b590-11eb-836e-a9e656c90e20.png)  
-在训练阶段deploy=False，通过简单的堆叠上述模块构建CNN架构；而在推理阶段deploy=True，上述模块可以轻易转换为y=h(x)形式，且h(x)的参数可以通过线性组合方式从已训练好的模型中转换得到。  
+在训练阶段deploy=False，通过简单的堆叠上述模块构建CNN架构；而在推理阶段deploy=True，上述模块可以轻易转换为y=h(x)形式，且h(x)的参数可以通过线性组合方式从已训练好的模型中转换得到。
+### 代码实现
+```
+def conv_bn(in_channels, out_channels, kernel_size, stride, padding, groups=1):
+    result = nn.Sequential()
+    result.add_module('conv', nn.Conv2d(in_channels=in_channels, out_channels=out_channels,
+                                                  kernel_size=kernel_size, stride=stride, padding=padding, groups=groups, bias=False))
+    result.add_module('bn', nn.BatchNorm2d(num_features=out_channels))
+    return result
+
+class RepVGGBlock(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size,
+                 stride=1, padding=0, dilation=1, groups=1, padding_mode='zeros', deploy=False):
+        super(RepVGGBlock, self).__init__()
+        self.deploy = deploy
+        self.groups = groups
+        self.in_channels = in_channels
+
+        assert kernel_size == 3
+        assert padding == 1
+
+        padding_11 = padding - kernel_size // 2
+
+        self.nonlinearity = nn.ReLU()
+
+        if deploy:
+            self.rbr_reparam = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride,
+                                      padding=padding, dilation=dilation, groups=groups, bias=True, padding_mode=padding_mode)
+
+        else:
+            self.rbr_identity = nn.BatchNorm2d(num_features=in_channels) if out_channels == in_channels and stride == 1 else None
+            self.rbr_dense = conv_bn(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups)
+            self.rbr_1x1 = conv_bn(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride, padding=padding_11, groups=groups)
+            print('RepVGG Block, identity = ', self.rbr_identity)
+
+
+    def forward(self, inputs):
+        if hasattr(self, 'rbr_reparam'):
+            return self.nonlinearity(self.rbr_reparam(inputs))
+
+        if self.rbr_identity is None:
+            id_out = 0
+        else:
+            id_out = self.rbr_identity(inputs)
+
+        return self.nonlinearity(self.rbr_dense(inputs) + self.rbr_1x1(inputs) + id_out)
+```        
 
 ## Re-param for Plain Inference-time Model
 如何将三个分支合并呢？  
@@ -31,8 +78,53 @@ bn层函数，形式上为：
 ![image](https://user-images.githubusercontent.com/80331072/118352236-eb273500-b592-11eb-899c-a8e13090acef.png)  
 该分支变成了一个卷积核和一个bias的结构，同理，三个分支都可以变换，得到一个3×3卷积核，两个1×1卷积核以及三个bias参数。    
 **bias：**三个bias参数可以通过简单的add方式合并为一个bias  
-**卷积核：**将1×1卷积核参数加到3×3卷积核的中心点得到  
+**卷积核：**将1×1卷积核参数加到3×3卷积核的中心点得到 
+### 代码实现
+```
+def get_equivalent_kernel_bias(self):
+        kernel3x3, bias3x3 = self._fuse_bn_tensor(self.rbr_dense)
+        kernel1x1, bias1x1 = self._fuse_bn_tensor(self.rbr_1x1)
+        kernelid, biasid = self._fuse_bn_tensor(self.rbr_identity)
+        return kernel3x3 + self._pad_1x1_to_3x3_tensor(kernel1x1) + kernelid, bias3x3 + bias1x1 + biasid
 
-## 模型代码（revgg.py）
+    def _pad_1x1_to_3x3_tensor(self, kernel1x1):
+        if kernel1x1 is None:
+            return 0
+        else:
+            return torch.nn.functional.pad(kernel1x1, [1,1,1,1])
+
+    def _fuse_bn_tensor(self, branch):
+        if branch is None:
+            return 0, 0
+        if isinstance(branch, nn.Sequential):
+            kernel = branch.conv.weight
+            running_mean = branch.bn.running_mean
+            running_var = branch.bn.running_var
+            gamma = branch.bn.weight
+            beta = branch.bn.bias
+            eps = branch.bn.eps
+        else:
+            assert isinstance(branch, nn.BatchNorm2d)
+            if not hasattr(self, 'id_tensor'):
+                input_dim = self.in_channels // self.groups
+                kernel_value = np.zeros((self.in_channels, input_dim, 3, 3), dtype=np.float32)
+                for i in range(self.in_channels):
+                    kernel_value[i, i % input_dim, 1, 1] = 1
+                self.id_tensor = torch.from_numpy(kernel_value).to(branch.weight.device)
+            kernel = self.id_tensor
+            running_mean = branch.running_mean
+            running_var = branch.running_var
+            gamma = branch.weight
+            beta = branch.bias
+            eps = branch.eps
+        std = (running_var + eps).sqrt()
+        t = (gamma / std).reshape(-1, 1, 1, 1)
+        return kernel * t, beta - running_mean * gamma / std
+
+    def repvgg_convert(self):
+        kernel, bias = self.get_equivalent_kernel_bias()
+        return kernel.detach().cpu().numpy(), bias.detach().cpu().numpy()
+```        
+
 
 
